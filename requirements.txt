@@ -1,6 +1,6 @@
 pandas
 numpy
-xgb
+xgboost
 catboost
 mlflow
 scikit-learn
