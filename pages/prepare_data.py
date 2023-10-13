@@ -23,8 +23,10 @@ def app():
     col1, col2 = st.columns(2)
     with col2:
         df_file = st.file_uploader("Choose 'new gender' file :", key="gender_file_upload")
+        st.write(f"new data size: :green[{df_file.shape}]")
     with col1:
         df_exist_file = st.file_uploader("Choose 'exist gender' file :", key="gender_exist_file_upload")
+        st.write(f"exist data size: :green[{df_exist_file.shape}]")
     if df_file is not None:
         df_gender = pd.read_csv(df_file)
         first_name_column = st.selectbox('Select first name column', df_gender.columns.values, index=df_gender.columns.get_loc('first_name') if 'first_name' in df_gender.columns.values else 0)
