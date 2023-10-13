@@ -20,6 +20,7 @@ def download_csv(df, file_name):
 
 def app():
     st.markdown('# Gender Data Preparing')
+    df_exist = None
     col1, col2 = st.columns(2)
     with col2:
         df_file = st.file_uploader("Choose 'new gender' file :", key="gender_file_upload")
@@ -105,10 +106,14 @@ def app():
         df_boy_['gender_code'] = 'M'
         result_df = pd.concat([df_girl_, df_boy_, df_unknown_], axis=0)
         result_df = result_df[['first_name', 'gender_code']]
-        df_exist_file_ = df_exist_file[['first_name', 'gender_code']]
-        combine_df = pd.concat([result_df, df_exist_file_], axis=0)
-        st.dataframe(combine_df)
-        download_csv(combine_df, 'train_gender')
+        if df_exist is not None:
+            df_exist_file_ = df_exist[['first_name', 'gender_code']]
+            combine_df = pd.concat([result_df, df_exist_file_], axis=0)
+            st.dataframe(combine_df)
+            download_csv(combine_df, 'train_gender')
+        else:
+            st.dataframe(result_df)
+            download_csv(result_df, 'train_gender')
 
 
 if __name__ == '__main__':
