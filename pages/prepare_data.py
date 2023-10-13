@@ -105,8 +105,10 @@ def app():
         df_boy_['gender_code'] = 'M'
         result_df = pd.concat([df_girl_, df_boy_, df_unknown_], axis=0)
         result_df = result_df[['first_name', 'gender_code']]
-        st.dataframe(result_df)
-        download_csv(result_df, 'train_gender')
+        df_exist_file_ = df_exist_file[['first_name', 'gender_code']]
+        combine_df = pd.concat([result_df, df_exist_file_], axis=0)
+        st.dataframe(combine_df)
+        download_csv(combine_df, 'train_gender')
 
 
 if __name__ == '__main__':
