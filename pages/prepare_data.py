@@ -109,9 +109,11 @@ def app():
         if df_exist is not None:
             df_exist_file_ = df_exist[['first_name', 'gender_code']]
             combine_df = pd.concat([result_df, df_exist_file_], axis=0)
+            st.write(f"new file size: from:green[{df_exist_file_.shape}] to :green[{combine_df.shape}]")
             st.dataframe(combine_df)
             download_csv(combine_df, 'train_gender')
         else:
+            st.write(f"new file size: :green[{result_df.shape}]")
             st.dataframe(result_df)
             download_csv(result_df, 'train_gender')
 
