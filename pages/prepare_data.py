@@ -37,7 +37,7 @@ def app():
         df_gender = df_gender.rename(columns={first_name_column: 'first_name'})
         df_gender_filtered = df_gender[~df_gender['first_name'].isin(existing_first_names)]
         df_gender_filtered = df_gender_filtered[df_gender_filtered['first_name'].str.len() > 2]
-        df_gender_filtered['gender'] = -1
+        df_gender_filtered['gender'] = False
         df_gender_unknown = df_gender_filtered
         df_gender_for_girl = df_gender_filtered
         df_gender_for_boy = df_gender_filtered
