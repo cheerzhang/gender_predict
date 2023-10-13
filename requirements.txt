@@ -1,3 +1,6 @@
 pandas
+numpy
 xgb
 catboost
+mlflow
+scikit-learn
