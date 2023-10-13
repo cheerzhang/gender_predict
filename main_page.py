@@ -12,7 +12,7 @@ with col1:
         This tool for preparing data including labeling for the data.
         """)
 with col2:
-    with st.expander(" [[Model] Train model](/prepare_data)"):
+    with st.expander(" [[Model] Train model](/model_train)"):
         st.markdown("""
         Train the gender predict model.
         """)
