@@ -1,6 +1,8 @@
 pandas
+catboost
 numpy
 xgboost
-catboost
 mlflow
 scikit-learn
+transformers
+torch
