@@ -1,11 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.utils.class_weight import compute_class_weight
 from sklearn.model_selection import cross_validate, GridSearchCV, train_test_split, cross_val_predict
-from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
 import mlflow
 import json
@@ -14,15 +10,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
-import xgboost as xgb
 import catboost
 from catboost import CatBoostClassifier, Pool
-from transformers import BertTokenizer, BertModel
 from torch.utils.data import DataLoader, TensorDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.preprocessing import OneHotEncoder
+
 
 
 def log_mdoel(model_name, model, result, experiment_name = 'Gender'):
@@ -48,38 +42,39 @@ def convert_df(df):
     return df.to_csv(index=False).encode('utf-8')
 
 
-def encode_names(names, labels, max_length=16):
-    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-    input_ids = []
-    attention_masks = []
-    encoded_labels = []
-    for name, label in zip(names, labels):
-        tokens = tokenizer(name, truncation=True, padding='max_length', max_length=max_length, return_tensors='pt')
-        input_ids.append(tokens['input_ids'])
-        attention_masks.append(tokens['attention_mask'])
-        encoded_labels.append(label)
-    input_ids = torch.cat(input_ids, dim=0)
-    attention_masks = torch.cat(attention_masks, dim=0)
-    labels = torch.tensor(encoded_labels)
-    return input_ids, attention_masks, labels
-
-
 class NameEmbedding(nn.Module):
-    def __init__(self, input_dim, embedding_dim, output_dim):
+    def __init__(self, vocab_size, embedding_dim, output_dim):
         super(NameEmbedding, self).__init__()
-        self.embedding = nn.Embedding(input_dim, embedding_dim)
-        self.fc = nn.Linear(embedding_dim, output_dim)  # For classification
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.multihead_attention = nn.MultiheadAttention(embed_dim=embedding_dim, num_heads=8)
+        self.fc = nn.Linear(embedding_dim * 26, output_dim)  # For classification
+
 
     def forward(self, x):
-        embedded = self.embedding(x)
-        output = self.fc(embedded)
+        embedded = self.embedding(x) # B, S, D
+        embedded = embedded.permute(1, 0, 2) # S, B, D
+        # Apply multi-head self-attention
+        attention_output, _ = self.multihead_attention(embedded, embedded, embedded) # S, B , D
+        attention_output = attention_output.permute(1, 0, 2)  # B, S , D
+        B, S, D = attention_output.shape
+        output = attention_output.reshape(B, -1)
+        output = self.fc(output)
+        # output = self.fc(embedded)
         return output
 
 def encode_name(name):
-    letter_to_number = {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6, 'g': 7, 'h': 8, 'i': 9, 'j': 10, 'k': 11, 'l': 12, 'm': 13, 'n': 14, 'o': 15, 'p': 16, 'q': 17, 'r': 18, 's': 19, 't': 20, 'u': 21, 'v': 22, 'w': 23, 'x': 24, 'y': 25, 'z': 26}
+    letter_to_number = {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6, 'g': 7, 'h': 8, 'i': 9, 'j': 10, 
+                        'k': 11, 'l': 12, 'm': 13, 'n': 14, 'o': 15, 'p': 16, 'q': 17, 'r': 18, 's': 19, 
+                        't': 20, 'u': 21, 'v': 22, 'w': 23, 'x': 24, 'y': 25, 'z': 26, '.': 27}
     name = name.lower()  # Convert to lowercase for consistency
     encoded_name = [letter_to_number[letter] for letter in name if letter in letter_to_number]
     return encoded_name
+
+
+def encode_label(label):
+    encoded_label = [0, 0, 0]
+    encoded_label[label] = 1
+    return encoded_label
 
 
 
@@ -123,10 +118,10 @@ def app():
         X_test_features = X_test_features.dropna()
         y_train_ = y_train[X_train_features.index]
         y_test_ = y_test[X_test_features.index]
-        options = st.selectbox('Chose Model', ('transformer', 'CatBoost', 'Logistic+OVR',  'XGB'))
+        options = st.selectbox('Chose Model', ('NN', 'CatBoost', 'Logistic+OVR',  'XGB'))
         if options == 'CatBoost':
             with st.spinner(f"traning CatBoost"):
-                classifier = CatBoostClassifier(iterations=500,  # Number of boosting iterations
+                classifier = CatBoostClassifier(iterations=1000,  # Number of boosting iterations
                                 depth=6,         # Tree depth
                                 learning_rate=0.1,  # Learning rate
                                 loss_function='MultiClass',  # Specify the loss function for multi-class
@@ -154,25 +149,22 @@ def app():
                 report = classification_report(y_test_, y_pred, output_dict=True)
                 report_df = pd.DataFrame(report).transpose()
                 st.dataframe(report_df)
-        if options == 'XGB':
-            model = xgb.XGBClassifier(objective="multi:softmax", num_class=3, eval_metric="mlogloss")
-            model.fit(X_train_features.values, y_train_)
-            y_pred = model.predict(X_test_features)
-            report = classification_report(y_test_, y_pred, output_dict=True)
-            report_df = pd.DataFrame(report).transpose()
-            st.dataframe(report_df)
-        if options == 'transformer':
+        if options == 'NN':
             with st.spinner(f"traning Transformers"):
                 train_data, val_data = train_test_split(df[['first_name', 'gender']], test_size=0.2, random_state=42)
                 train_data['encoded_names'] = train_data['first_name'].apply(lambda name: encode_name(name))
                 val_data['encoded_names'] = val_data['first_name'].apply(lambda name: encode_name(name))
-                st.dataframe(val_data.shape)
+                # train_data['encoded_labels'] = train_data['gender'].apply(lambda label: encode_label(label))
+                # val_data['encoded_labels'] = val_data['gender'].apply(lambda label: encode_label(label))
+
                 train_sequences = train_data['encoded_names'].tolist()
                 val_sequences = val_data['encoded_names'].tolist()
 
+                # train_labels = train_data['encoded_labels'].tolist()
                 train_labels = train_data['gender'].values
+                # val_labels = val_data['encoded_labels'].tolist()
                 val_labels = val_data['gender'].values
-                # st.dataframe(train_labels)
+                # st.dataframe(val_data)
 
                 max_name_length = max(len(name) for name in train_sequences)
                 st.write(f'max_name_length is {max_name_length}')
@@ -197,10 +189,12 @@ def app():
                 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
                 num_classes = 3 # Assuming 26 letters in the alphabet
-                input_dim =  26
+                input_dim =  28
                 embedding_dim = 16
-                model = NameEmbedding(27, 64, 1)
+                model = NameEmbedding(input_dim, embedding_dim, num_classes)
                 optimizer = optim.Adam(model.parameters(), lr=0.001)
+                # optimizer = optim.SGD(model.parameters(), lr=0.001)
+
                 criterion = nn.CrossEntropyLoss()
                 num_epochs = 1000
                 total_loss = 0.0 
@@ -213,8 +207,10 @@ def app():
                     for sequences, labels in train_loader:
                         optimizer.zero_grad()
                         output = model(sequences)
-                        labels_ = labels.view(-1, 1)
-                        loss = criterion(output, labels_)
+                        # st.write(output.shape)
+                        # st.write(labels)
+                        # labels_ = labels.view(-1, 1)
+                        loss = criterion(output, labels)
                         loss.backward()
                         optimizer.step()
                         total_loss += loss.item()
@@ -227,8 +223,8 @@ def app():
                     with torch.no_grad():
                         for val_sequences, val_labels in val_loader:
                             val_output = model(val_sequences)
-                            val_labels_ = val_labels.view(-1, 1)
-                            val_loss += criterion(val_output, val_labels_).item()
+                            # val_labels_ = val_labels.view(-1, 1)
+                            val_loss += criterion(val_output, val_labels).item()
                     avg_val_loss = val_loss / len(val_loader)
                     if (epoch + 1) % 10 == 0:
                         with col_va:
@@ -249,18 +245,23 @@ def app():
                 with torch.no_grad():
                     for val_sequences, val_labels in val_loader:
                         val_output = model(val_sequences)
-                        val_labels_ = val_labels.view(-1, 1)
+                        # val_labels_ = val_labels.view(-1, 1)
                         # Apply softmax to get class probabilities
                         val_probs = torch.softmax(val_output, dim=1)
                         # Get the predicted class (argmax)
                         val_preds = torch.argmax(val_probs, dim=1)
-                        item_preds = [item[0] for item in val_preds.tolist()]
-                        # all_predictions.append(item_preds)
-                        all_predictions = all_predictions + [item[0] for item in val_preds.tolist()]
-                        # all_true_labels.append(val_labels.tolist())
+                        item_preds = [item for item in val_preds.tolist()]
+                        # all_predictions.append(val_preds)
+                        all_predictions = all_predictions + item_preds
+                        # all_true_labels.append(val_labels)
+                        # st.write(len(val_labels.tolist()))
                         all_true_labels = all_true_labels + val_labels.tolist()
+                st.write(len(all_predictions))
+                st.write(len(all_true_labels))
                 report = classification_report(all_true_labels, all_predictions)
                 st.dataframe(report)
+                report_df = pd.DataFrame(report).transpose()
+                st.dataframe(report_df)
 
 
 
