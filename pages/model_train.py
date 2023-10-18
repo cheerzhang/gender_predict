@@ -17,6 +17,12 @@ from sklearn.metrics import classification_report
 import xgboost as xgb
 import catboost
 from catboost import CatBoostClassifier, Pool
+from transformers import BertTokenizer, BertModel
+from torch.utils.data import DataLoader, TensorDataset
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.preprocessing import OneHotEncoder
 
 
 def log_mdoel(model_name, model, result, experiment_name = 'Gender'):
@@ -40,6 +46,43 @@ def log_mdoel(model_name, model, result, experiment_name = 'Gender'):
 @st.cache_data
 def convert_df(df):
     return df.to_csv(index=False).encode('utf-8')
+
+
+def encode_names(names, labels, max_length=16):
+    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+    input_ids = []
+    attention_masks = []
+    encoded_labels = []
+    for name, label in zip(names, labels):
+        tokens = tokenizer(name, truncation=True, padding='max_length', max_length=max_length, return_tensors='pt')
+        input_ids.append(tokens['input_ids'])
+        attention_masks.append(tokens['attention_mask'])
+        encoded_labels.append(label)
+    input_ids = torch.cat(input_ids, dim=0)
+    attention_masks = torch.cat(attention_masks, dim=0)
+    labels = torch.tensor(encoded_labels)
+    return input_ids, attention_masks, labels
+
+
+class NameEmbedding(nn.Module):
+    def __init__(self, input_dim, embedding_dim, output_dim):
+        super(NameEmbedding, self).__init__()
+        self.embedding = nn.Embedding(input_dim, embedding_dim)
+        self.fc = nn.Linear(embedding_dim, output_dim)  # For classification
+
+    def forward(self, x):
+        embedded = self.embedding(x)
+        output = self.fc(embedded)
+        return output
+
+def encode_name(name):
+    letter_to_number = {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6, 'g': 7, 'h': 8, 'i': 9, 'j': 10, 'k': 11, 'l': 12, 'm': 13, 'n': 14, 'o': 15, 'p': 16, 'q': 17, 'r': 18, 's': 19, 't': 20, 'u': 21, 'v': 22, 'w': 23, 'x': 24, 'y': 25, 'z': 26}
+    name = name.lower()  # Convert to lowercase for consistency
+    encoded_name = [letter_to_number[letter] for letter in name if letter in letter_to_number]
+    return encoded_name
+
+
+
 
 
 def app():
@@ -80,7 +123,7 @@ def app():
         X_test_features = X_test_features.dropna()
         y_train_ = y_train[X_train_features.index]
         y_test_ = y_test[X_test_features.index]
-        options = st.selectbox('Chose Model', ('CatBoost', 'Logistic+OVR',  'XGB'))
+        options = st.selectbox('Chose Model', ('transformer', 'CatBoost', 'Logistic+OVR',  'XGB'))
         if options == 'CatBoost':
             with st.spinner(f"traning CatBoost"):
                 classifier = CatBoostClassifier(iterations=500,  # Number of boosting iterations
@@ -118,6 +161,109 @@ def app():
             report = classification_report(y_test_, y_pred, output_dict=True)
             report_df = pd.DataFrame(report).transpose()
             st.dataframe(report_df)
+        if options == 'transformer':
+            with st.spinner(f"traning Transformers"):
+                train_data, val_data = train_test_split(df[['first_name', 'gender']], test_size=0.2, random_state=42)
+                train_data['encoded_names'] = train_data['first_name'].apply(lambda name: encode_name(name))
+                val_data['encoded_names'] = val_data['first_name'].apply(lambda name: encode_name(name))
+                st.dataframe(val_data.shape)
+                train_sequences = train_data['encoded_names'].tolist()
+                val_sequences = val_data['encoded_names'].tolist()
+
+                train_labels = train_data['gender'].values
+                val_labels = val_data['gender'].values
+                # st.dataframe(train_labels)
+
+                max_name_length = max(len(name) for name in train_sequences)
+                st.write(f'max_name_length is {max_name_length}')
+                for i in range(len(train_sequences)):
+                    if len(train_sequences[i]) < max_name_length:
+                        train_sequences[i] = train_sequences[i] + [0] * (max_name_length - len(train_sequences[i]))
+                    elif len(train_sequences[i]) > max_name_length:
+                        train_sequences[i] = train_sequences[i][:max_name_length]
+                for i in range(len(val_sequences)):
+                    if len(val_sequences[i]) < max_name_length:
+                        val_sequences[i] = val_sequences[i] + [0] * (max_name_length - len(val_sequences[i]))
+                    elif len(val_sequences[i]) > max_name_length:
+                        val_sequences[i] = val_sequences[i][:max_name_length]
+                train_sequences = torch.LongTensor(train_sequences)
+                val_sequences = torch.LongTensor(val_sequences)
+                train_labels = torch.LongTensor(train_labels)
+                val_labels = torch.LongTensor(val_labels)
+                batch_size = 32
+                train_dataset = TensorDataset(train_sequences, train_labels)
+                train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+                val_dataset = TensorDataset(val_sequences, val_labels)
+                val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+
+                num_classes = 3 # Assuming 26 letters in the alphabet
+                input_dim =  26
+                embedding_dim = 16
+                model = NameEmbedding(27, 64, 1)
+                optimizer = optim.Adam(model.parameters(), lr=0.001)
+                criterion = nn.CrossEntropyLoss()
+                num_epochs = 1000
+                total_loss = 0.0 
+                best_val_loss = np.inf  # Set an initial high value for best validation loss
+                patience = 10  # Number of epochs to wait for improvement
+                wait = 0 
+                col_tr, col_va = st.columns(2)
+                for epoch in range(num_epochs):
+                    model.train()
+                    for sequences, labels in train_loader:
+                        optimizer.zero_grad()
+                        output = model(sequences)
+                        labels_ = labels.view(-1, 1)
+                        loss = criterion(output, labels_)
+                        loss.backward()
+                        optimizer.step()
+                        total_loss += loss.item()
+                    avg_loss = total_loss / len(train_loader)
+                    if (epoch + 1) % 10 == 0:
+                        with col_tr:
+                            st.write(f"Epoch {epoch+1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
+                    model.eval()
+                    val_loss = 0.0
+                    with torch.no_grad():
+                        for val_sequences, val_labels in val_loader:
+                            val_output = model(val_sequences)
+                            val_labels_ = val_labels.view(-1, 1)
+                            val_loss += criterion(val_output, val_labels_).item()
+                    avg_val_loss = val_loss / len(val_loader)
+                    if (epoch + 1) % 10 == 0:
+                        with col_va:
+                            st.write(f"Validation Loss: {avg_val_loss:.4f}")
+                    if avg_val_loss < best_val_loss:
+                        best_val_loss = avg_val_loss
+                        wait = 0  # Reset patience counter
+                    else:
+                        wait += 1  # Increment patience counter
+                    if wait >= patience:
+                        st.write("Early stopping triggered. No improvement in validation loss.")
+                        break  # Stop training
+
+                # eval model result
+                all_predictions = []
+                all_true_labels = []
+                model.eval()
+                with torch.no_grad():
+                    for val_sequences, val_labels in val_loader:
+                        val_output = model(val_sequences)
+                        val_labels_ = val_labels.view(-1, 1)
+                        # Apply softmax to get class probabilities
+                        val_probs = torch.softmax(val_output, dim=1)
+                        # Get the predicted class (argmax)
+                        val_preds = torch.argmax(val_probs, dim=1)
+                        item_preds = [item[0] for item in val_preds.tolist()]
+                        # all_predictions.append(item_preds)
+                        all_predictions = all_predictions + [item[0] for item in val_preds.tolist()]
+                        # all_true_labels.append(val_labels.tolist())
+                        all_true_labels = all_true_labels + val_labels.tolist()
+                report = classification_report(all_true_labels, all_predictions)
+                st.dataframe(report)
+
+
+
         
         # download model
         '''

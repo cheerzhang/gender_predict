@@ -1,3 +1,9 @@
 pandas
 xgb
 catboost
+numpy
+xgboost
+mlflow
+scikit-learn
+transformers
+torch
