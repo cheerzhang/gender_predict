@@ -96,7 +96,8 @@ def log_mdoel(model_name, model, result, data_size, experiment_name = 'Gender', 
             mlflow.pytorch.log_model(model, model_name)
             mlflow.log_params(model_parameter)
         if model_type == 'Logistic':
-            mlflow.sklearn.log_model(sk_model=model, artifact_path=model_name)
+            mlflow.sklearn.log_model(sk_model=model[0], artifact_path=model_name[0])
+            mlflow.sklearn.log_model(sk_model=model[1], artifact_path=model_name[1])
         if model_type == 'CatBoost':
             mlflow.catboost.log_model(model, "catboost_model")
         mlflow.end_run()
@@ -330,25 +331,15 @@ def app():
                 col_logistic, col_countvectorizer = st.columns(2)
                 with col_logistic:
                     if st.button('Log logistic_gender Model'):
-                        msg = log_mdoel(model_name = 'logistic_gender.pkl', 
-                                        model = classifier,  
+                        msg = log_mdoel(model_name = ['logistic_gender.pkl', 'countvectorizer_gender.pkl'],
+                                        model = [classifier,  vectorizer], 
                                         result = report['weighted avg'],
                                         data_size= data_size,
                                         model_type  = model_options,
                                         model_parameter = None)
                         # joblib.dump(classifier, 'models/logistic_gender.pkl')
+                        # joblib.dump(vectorizer, 'models/countvectorizer_gender.pkl')
                         st.success(msg)
-                with col_countvectorizer:
-                    if st.button('Log CountVectorizer Model'):
-                        msg = log_mdoel(model_name = 'countvectorizer_gender.pkl', 
-                                        model = vectorizer, 
-                                        result = report['weighted avg'],
-                                        data_size = data_size,
-                                        model_type  = model_options,
-                                        model_parameter = None)
-                        joblib.dump(vectorizer, 'models/countvectorizer_gender.pkl')
-                        st.success(msg)
-
 
 
 
