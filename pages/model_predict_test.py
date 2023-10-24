@@ -93,13 +93,13 @@ def app():
             test_sequences = df['encoded_names'].tolist()
             test_labels = df['gender_code'].values
             for i in range(len(test_sequences)):
-                if len(test_sequences[i]) < params['max_name_length']:
-                    test_sequences[i] = test_sequences[i] + [0] * (params['max_name_length'] - len(test_sequences[i]))
-                elif len(test_sequences[i]) > params['max_name_length']:
-                    test_sequences[i] = test_sequences[i][:params['max_name_length']]
+                if len(test_sequences[i]) < params.get('max_name_length'):
+                    test_sequences[i] = test_sequences[i] + [0] * (params.get('max_name_length') - len(test_sequences[i]))
+                elif len(test_sequences[i]) > params.get('max_name_length'):
+                    test_sequences[i] = test_sequences[i][:params.get('max_name_length')]
             test_sequences = torch.LongTensor(test_sequences)
             test_dataset = TensorDataset(test_sequences, test_labels)
-            test_loader = DataLoader(test_dataset, batch_size=params['batch size'], shuffle=False)
+            test_loader = DataLoader(test_dataset, batch_size=params.get('batch size'), shuffle=False)
             NNmodel.eval()
             with torch.no_grad():
                 for val_sequences, val_labels in test_loader:
