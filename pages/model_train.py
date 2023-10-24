@@ -1,25 +1,79 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import cross_validate, GridSearchCV, train_test_split, cross_val_predict
-import matplotlib.pyplot as plt
-import mlflow
-import json
-import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import classification_report
-import catboost
-from catboost import CatBoostClassifier, Pool
-from torch.utils.data import DataLoader, TensorDataset
+import matplotlib.pyplot as plt
+import mlflow, json, math, joblib, time
 import torch
-import torch.nn as nn
 import torch.optim as optim
+from torch import nn, Tensor
+from torch.utils.data import DataLoader, TensorDataset
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from catboost import CatBoostClassifier, Pool
 
 
 
-def log_mdoel(model_name, model, result, experiment_name = 'Gender'):
+letter_to_number = {'a': 1,  'b': 2,  'c': 3,  'd': 4,  'e': 5,  'f': 6,  'g': 7,  'h': 8,  'i': 9,  'j': 10, 
+                    'k': 11, 'l': 12, 'm': 13, 'n': 14, 'o': 15, 'p': 16, 'q': 17, 'r': 18, 's': 19, 't': 20, 
+                    'u': 21, 'v': 22, 'w': 23, 'x': 24, 'y': 25, 'z': 26, 
+                    'A': 27, 'B': 28, 'C': 29, 'D': 30, 'E': 31, 'F': 32, 'G': 33, 'H': 34, 'I': 35, 'J': 36, 
+                    'K': 37, 'L': 38, 'M': 39, 'N': 40, 'O': 41, 'P': 42, 'Q': 43, 'R': 44, 'S': 45, 'T': 46, 
+                    'U': 47, 'V': 48, 'W': 49, 'X': 50, 'Y': 51, 'Z': 52, 
+                    '.': 53, '-': 54, ' ': 55, '@': 56, '?': 57, '/': 58,  "'": 59}
+
+def encode_name(name):
+    encoded_name = [letter_to_number[letter] for letter in name if letter in letter_to_number]
+    return encoded_name
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+    def forward(self, x: Tensor) -> Tensor:
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
+    
+
+class TransformerModel(nn.Module):
+    def __init__(self, ntoken: int, d_model: int, nhead: int, d_hid: int,
+                 nlayers: int, dropout: float = 0.5, sequence_length = 38):
+        super().__init__()
+        self.model_type = 'Transformer'
+        self.pos_encoder = PositionalEncoding(d_model, dropout)
+        encoder_layers = TransformerEncoderLayer(d_model, nhead, d_hid, dropout)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
+        self.embedding = nn.Embedding(ntoken, d_model)
+        self.d_model = d_model
+        self.linear = nn.Linear(d_model * sequence_length, 3)
+        self.init_weights()
+
+    def init_weights(self) -> None:
+        initrange = 0.1
+        self.embedding.weight.data.uniform_(-initrange, initrange)
+        self.linear.bias.data.zero_()
+        self.linear.weight.data.uniform_(-initrange, initrange)
+
+    def forward(self, src: Tensor, src_mask: Tensor = None) -> Tensor:
+        src = self.embedding(src) * math.sqrt(self.d_model)
+        src = self.pos_encoder(src)
+        output = self.transformer_encoder(src, src_mask)
+        B, _, _ = output.shape
+        output = output.reshape(B, -1)
+        output = self.linear(output) # B ,S * D
+        return output
+
+
+def log_mdoel(model_name, model, result, data_size, experiment_name = 'Gender', model_type='NN', model_parameter = None):
     with open('config.json') as config_file:
         config = json.load(config_file)
     model_uri = config['tracking_uri']
@@ -32,7 +86,14 @@ def log_mdoel(model_name, model, result, experiment_name = 'Gender'):
         mlflow.log_params({'name': model_name})
         st.write(result)
         mlflow.log_params(result)
-        mlflow.sklearn.log_model(sk_model=model, artifact_path=model_name)
+        mlflow.log_params(data_size)
+        if model_type == 'NN':
+            mlflow.pytorch.log_model(model, model_name)
+            mlflow.log_params(model_parameter)
+        if model_type == 'Logistic':
+            mlflow.sklearn.log_model(sk_model=model, artifact_path=model_name)
+        if model_type == 'CatBoost':
+            mlflow.catboost.log_model(model, "catboost_model")
         mlflow.end_run()
         return f"Log model - {model_name} succeed"
 
@@ -42,132 +103,89 @@ def convert_df(df):
     return df.to_csv(index=False).encode('utf-8')
 
 
-class NameEmbedding(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, output_dim):
-        super(NameEmbedding, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.multihead_attention = nn.MultiheadAttention(embed_dim=embedding_dim, num_heads=8)
-        self.fc = nn.Linear(embedding_dim * 26, output_dim)  # For classification
-
-
-    def forward(self, x):
-        embedded = self.embedding(x) # B, S, D
-        embedded = embedded.permute(1, 0, 2) # S, B, D
-        # Apply multi-head self-attention
-        attention_output, _ = self.multihead_attention(embedded, embedded, embedded) # S, B , D
-        attention_output = attention_output.permute(1, 0, 2)  # B, S , D
-        B, S, D = attention_output.shape
-        output = attention_output.reshape(B, -1)
-        output = self.fc(output)
-        # output = self.fc(embedded)
-        return output
-
-def encode_name(name):
-    letter_to_number = {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6, 'g': 7, 'h': 8, 'i': 9, 'j': 10, 
-                        'k': 11, 'l': 12, 'm': 13, 'n': 14, 'o': 15, 'p': 16, 'q': 17, 'r': 18, 's': 19, 
-                        't': 20, 'u': 21, 'v': 22, 'w': 23, 'x': 24, 'y': 25, 'z': 26, '.': 27}
-    name = name.lower()  # Convert to lowercase for consistency
-    encoded_name = [letter_to_number[letter] for letter in name if letter in letter_to_number]
-    return encoded_name
-
-
-def encode_label(label):
-    encoded_label = [0, 0, 0]
-    encoded_label[label] = 1
-    return encoded_label
-
-
-
+def format_duration(duration):
+        hours = int(duration // 3600)
+        minutes = int((duration % 3600) // 60)
+        seconds = int(duration % 60)
+        return f"{hours}h {minutes}min {seconds}sec"
 
 
 def app():
     st.markdown('# Gender Classification Model')
     df_file = st.file_uploader("Choose 'gender' file :", key="gender_file_upload")
+    data_source = st.text_input('Data Scorce', 'Public Dataset')
     if df_file is not None:
         df = pd.read_csv(df_file)
-        st.write(df.shape)
+        # df = df.iloc[0:30000]
         with st.expander(f"check dataset size {df.shape}"):
             col_data, col_pie = st.columns(2)
             with col_data:
-                df['gender'] = df['gender_code'].map({'M': 1, 'F': 0, 'U': 2})
+                first_name_option = st.selectbox('Chose FirstName Column', df.columns.values, index=df.columns.get_loc('first_name') if 'first_name' in df.columns.values else 0)
+                initials_option = st.selectbox('Chose Initals Column (Chose False to disable use initals for feature)', df.columns.values.tolist()+['False'], index=df.columns.get_loc('initials') if 'initials' in df.columns.values else df.columns.get_loc('False'))
+                gender_option = st.selectbox('Chose Gender Column', df.columns.values, index=df.columns.get_loc('gender') if 'gender' in df.columns.values else 0)
+                df[first_name_option] = df[first_name_option].fillna('')
+                df[gender_option] = df[gender_option].fillna('')
+                df['gender_code'] = df[gender_option].map({'M': 1, 'F': 0})
+                st.write(df.shape)
+                df_name = df[[first_name_option, gender_option, 'gender_code']]
+                if initials_option is not 'False':
+                    df_initals = df[[initials_option, gender_option, 'gender_code']]
+                    df_initals_ = df_initals.rename(columns={initials_option : first_name_option})
+                    df_ = pd.concat([df_name, df_initals_])
+                    st.write(df_.shape)
+                    df = df_
                 st.dataframe(df)
+                df = df[~df['gender_code'].isna()]
+                df = df[df[first_name_option].str.len() >= 3]
             with col_pie:
                 fig, ax = plt.subplots()
-                num_boys, num_girls, num_unknown = df[df['gender_code'] == 'M'].shape[0], df[df['gender_code'] == 'F'].shape[0], df[df['gender_code'] == 'U'].shape[0]
-                ax.pie([num_girls, num_boys, num_unknown], labels=['Female', 'Male', 'Unknown'], autopct='%1.1f%%', startangle=90)
+                num_boys, num_girls = df[df[gender_option] == 'M'].shape[0], df[df[gender_option] == 'F'].shape[0]
+                ax.pie([num_girls, num_boys], labels=['Female', 'Male'], autopct='%1.1f%%', startangle=90)
                 ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
                 st.pyplot(fig)
-                st.write(f"female count: :green[{num_girls}]")
-                st.write(f"male count: :green[{num_boys}]")
-                st.write(f"unknown count: :green[{num_unknown}]")
-        # Split the dataset into training and testing sets (80% train, 20% test)
-        # some fe
-        df['len_first_name'] = df['first_name'].apply(len)
-        X = df[['first_name', 'len_first_name']]
-        y = df['gender']
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        # Feature extraction using CountVectorizer
-        vectorizer = CountVectorizer()
-        X_train_vectorized = vectorizer.fit_transform(X_train['first_name'].values)
-        X_test_vectorized = vectorizer.transform(X_test['first_name'].values)
-        X_train_features = pd.DataFrame(X_train_vectorized.toarray(), columns=vectorizer.get_feature_names_out())
-        X_train_features['len_first_name'] = X_train['len_first_name']
-        X_test_features = pd.DataFrame(X_test_vectorized.toarray(), columns=vectorizer.get_feature_names_out())
-        X_test_features['len_first_name'] = X_test['len_first_name']
-        X_train_features = X_train_features.dropna()
-        X_test_features = X_test_features.dropna()
-        y_train_ = y_train[X_train_features.index]
-        y_test_ = y_test[X_test_features.index]
-        options = st.selectbox('Chose Model', ('NN', 'CatBoost', 'Logistic+OVR',  'XGB'))
-        if options == 'CatBoost':
-            with st.spinner(f"traning CatBoost"):
-                classifier = CatBoostClassifier(iterations=1000,  # Number of boosting iterations
-                                depth=6,         # Tree depth
-                                learning_rate=0.1,  # Learning rate
-                                loss_function='MultiClass',  # Specify the loss function for multi-class
-                                cat_features=[0]  # List of indices of categorical features (if applicable)
-                                )
-                classifier.fit(X_train[['first_name', 'len_first_name']], y_train)
-                y_pred = classifier.predict(X_test[['first_name', 'len_first_name']])
-                report = classification_report(y_test, y_pred, output_dict=True)
-                report_df = pd.DataFrame(report).transpose()
-                st.dataframe(report_df)
-        if options == 'Logistic+OVR':
-            with st.spinner(f"Logistic+OVR"):
-                classifierSearch = LogisticRegression(multi_class='ovr', solver='liblinear', class_weight='balanced')
-                param_grid = {
-                    'C': [0.001, 0.01, 0.1, 1, 10],
-                    'penalty': ['l1', 'l2']
-                }
-                grid_search = GridSearchCV(classifierSearch, param_grid, cv=10, scoring='f1_weighted')
-                grid_search.fit(X_train_features, y_train_)
-                st.write(grid_search.best_estimator_)
-                classifier = grid_search.best_estimator_
-                classifier.fit(X_train_features, y_train_)
-                y_pred = classifier.predict(X_test_features)
-                # Evaluate the model
-                report = classification_report(y_test_, y_pred, output_dict=True)
-                report_df = pd.DataFrame(report).transpose()
-                st.dataframe(report_df)
-        if options == 'NN':
-            with st.spinner(f"traning Transformers"):
-                train_data, val_data = train_test_split(df[['first_name', 'gender']], test_size=0.2, random_state=42)
-                train_data['encoded_names'] = train_data['first_name'].apply(lambda name: encode_name(name))
-                val_data['encoded_names'] = val_data['first_name'].apply(lambda name: encode_name(name))
-                # train_data['encoded_labels'] = train_data['gender'].apply(lambda label: encode_label(label))
-                # val_data['encoded_labels'] = val_data['gender'].apply(lambda label: encode_label(label))
-
+                st.write(f'Male: :blue[{num_boys}] and Female: :blue[{num_girls}]')
+        
+        # chose the model to train
+        train_data, val_data = train_test_split(df[[first_name_option, 'gender_code']], test_size=0.2, random_state=42)
+        data_size = {'data size': df.shape[0], 
+                     'data source': data_source}
+        model_options = st.selectbox('Chose Model', ('Logistic', 'NN', 'CatBoost',  'XGB'))
+        if model_options == 'NN':
+            col_parameter, col_display_parameter = st.columns(2)
+            with col_parameter:
+                batch_size = st.number_input('Batch Size', min_value = 16, max_value = 128, value = 32)
+                embedding_dim = st.number_input('Embedding Size', min_value = 16, max_value = 128, value = 16)
+                nhead = st.number_input('N head', min_value = 1, max_value = 128, value = 8)
+                d_hid = st.number_input('Hidden Size', min_value = 8, max_value = 128, value = 32)
+                nlayers = st.number_input('Layers', min_value = 1, max_value = 10, value = 3)
+                dropout = st.number_input('Dropout', min_value = 0.0, max_value = 1.0, value = 0.5)
+            with col_display_parameter:
+                num_classes = st.number_input('Class Number', value = 2, disabled=True)
+                vocab_size =  st.number_input('Vocab Size', value = len(letter_to_number)+1, disabled=True)
+            with col_display_parameter:
+                model_parameter = {
+                    'batch size': batch_size, 
+                      'classes': num_classes,
+                      'vocab size': vocab_size,
+                      'Embedding Size': embedding_dim,
+                      'head number': nhead,
+                      'hidden size': d_hid,
+                      'layers': nlayers,
+                      'dropout': dropout}
+            with st.spinner(f"#### Processing the data and label, please wait..."):
+                # train_data, val_data = train_test_split(df[['first_name', 'gender_code']], test_size=0.2, random_state=42)
+                # X
+                train_data['encoded_names'] = train_data[first_name_option].apply(lambda name: encode_name(name))
+                val_data['encoded_names'] = val_data[first_name_option].apply(lambda name: encode_name(name))  
                 train_sequences = train_data['encoded_names'].tolist()
                 val_sequences = val_data['encoded_names'].tolist()
-
-                # train_labels = train_data['encoded_labels'].tolist()
-                train_labels = train_data['gender'].values
-                # val_labels = val_data['encoded_labels'].tolist()
-                val_labels = val_data['gender'].values
-                # st.dataframe(val_data)
-
+                # y
+                train_labels = train_data['gender_code'].values
+                val_labels = val_data['gender_code'].values
+                # max name length
                 max_name_length = max(len(name) for name in train_sequences)
-                st.write(f'max_name_length is {max_name_length}')
+                with col_display_parameter:
+                    st.write(f'max name length is {max_name_length}')
                 for i in range(len(train_sequences)):
                     if len(train_sequences[i]) < max_name_length:
                         train_sequences[i] = train_sequences[i] + [0] * (max_name_length - len(train_sequences[i]))
@@ -182,34 +200,32 @@ def app():
                 val_sequences = torch.LongTensor(val_sequences)
                 train_labels = torch.LongTensor(train_labels)
                 val_labels = torch.LongTensor(val_labels)
-                batch_size = 32
                 train_dataset = TensorDataset(train_sequences, train_labels)
                 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
                 val_dataset = TensorDataset(val_sequences, val_labels)
-                val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
-
-                num_classes = 3 # Assuming 26 letters in the alphabet
-                input_dim =  28
-                embedding_dim = 16
-                model = NameEmbedding(input_dim, embedding_dim, num_classes)
+                val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+                with col_display_parameter:
+                    model_parameter['max_name_length'] = max_name_length
+                    st.write(model_parameter)
+            with st.spinner(f"#### Training the NN model, please wait..."):
+                start_time = time.time()
+                model = TransformerModel(ntoken=vocab_size, d_model=embedding_dim, 
+                                     nhead=nhead, d_hid=d_hid, nlayers=nlayers, dropout=dropout, 
+                                     sequence_length=max_name_length)
                 optimizer = optim.Adam(model.parameters(), lr=0.001)
-                # optimizer = optim.SGD(model.parameters(), lr=0.001)
-
                 criterion = nn.CrossEntropyLoss()
                 num_epochs = 1000
-                total_loss = 0.0 
                 best_val_loss = np.inf  # Set an initial high value for best validation loss
-                patience = 10  # Number of epochs to wait for improvement
+                patience = 30  # Number of epochs to wait for improvement
                 wait = 0 
-                col_tr, col_va = st.columns(2)
+                col_tr, col_va, col_time = st.columns(3)
                 for epoch in range(num_epochs):
+                    start_time_ = time.time()
                     model.train()
+                    total_loss = 0.0
                     for sequences, labels in train_loader:
                         optimizer.zero_grad()
                         output = model(sequences)
-                        # st.write(output.shape)
-                        # st.write(labels)
-                        # labels_ = labels.view(-1, 1)
                         loss = criterion(output, labels)
                         loss.backward()
                         optimizer.step()
@@ -223,12 +239,14 @@ def app():
                     with torch.no_grad():
                         for val_sequences, val_labels in val_loader:
                             val_output = model(val_sequences)
-                            # val_labels_ = val_labels.view(-1, 1)
                             val_loss += criterion(val_output, val_labels).item()
                     avg_val_loss = val_loss / len(val_loader)
                     if (epoch + 1) % 10 == 0:
                         with col_va:
                             st.write(f"Validation Loss: {avg_val_loss:.4f}")
+                        with col_time:
+                            end_time_ = time.time()
+                            st.write(f"10 Epoches time: {format_duration((end_time_ - start_time_)*10)}")
                     if avg_val_loss < best_val_loss:
                         best_val_loss = avg_val_loss
                         wait = 0  # Reset patience counter
@@ -237,7 +255,11 @@ def app():
                     if wait >= patience:
                         st.write("Early stopping triggered. No improvement in validation loss.")
                         break  # Stop training
-
+                    
+                end_time = time.time()
+                st.success(f"Training spent: {format_duration(end_time - start_time)}")
+            with st.spinner(f"#### Model Evaluation, please wait..."):
+                st.write(f"#### Model Metric")
                 # eval model result
                 all_predictions = []
                 all_true_labels = []
@@ -245,46 +267,115 @@ def app():
                 with torch.no_grad():
                     for val_sequences, val_labels in val_loader:
                         val_output = model(val_sequences)
-                        # val_labels_ = val_labels.view(-1, 1)
-                        # Apply softmax to get class probabilities
                         val_probs = torch.softmax(val_output, dim=1)
                         # Get the predicted class (argmax)
                         val_preds = torch.argmax(val_probs, dim=1)
                         item_preds = [item for item in val_preds.tolist()]
-                        # all_predictions.append(val_preds)
                         all_predictions = all_predictions + item_preds
-                        # all_true_labels.append(val_labels)
-                        # st.write(len(val_labels.tolist()))
                         all_true_labels = all_true_labels + val_labels.tolist()
-                st.write(len(all_predictions))
-                st.write(len(all_true_labels))
-                report = classification_report(all_true_labels, all_predictions)
-                st.dataframe(report)
+                # st.write('Wrong Predict Name:')
+                # for idx in range(0, len(all_true_labels)):
+                #     if all_true_labels[idx] != all_predictions[idx]:
+                #         st.write(all_predictions[idx])
+                #         st.write(val_data.iloc[idx])
+                # all_predictions = [item for item in all_predictions]
+                report = classification_report(all_true_labels, all_predictions, output_dict=True)
+                report_df = pd.DataFrame(report).transpose()
+                st.dataframe(report_df)
+                
+                # report_df = pd.DataFrame(report).transpose()
+                col_NN, col_voc = st.columns(2)
+                with col_NN:
+                    msg = log_mdoel(model_name = 'NN_Transformer',
+                                        model = model, 
+                                        result = report['weighted avg'],
+                                        data_size = data_size,
+                                        model_type = model_options,
+                                        model_parameter = model_parameter)
+                    # torch.save(model.state_dict(), "models/NN.pth")
+                    st.success(msg)
+                
+
+
+        if model_options == 'Logistic':
+            with st.spinner(f"Preparing data + Training..."):
+                X_train, X_test, y_train, y_test = train_data[[first_name_option]], val_data[[first_name_option]], train_data[['gender_code']], val_data[['gender_code']]
+                vectorizer = CountVectorizer()
+                X_train_vectorized = vectorizer.fit_transform(X_train[first_name_option].values)
+                X_test_vectorized = vectorizer.transform(X_test[first_name_option].values)
+                # st.write(X_test_vectorized)
+
+                classifierSearch = LogisticRegression(solver='liblinear', class_weight='balanced')
+                param_grid = {
+                    'C': [0.001, 0.01, 0.1, 1, 10],
+                    'penalty': ['l1', 'l2']
+                }
+                grid_search = GridSearchCV(classifierSearch, param_grid, cv=10, scoring='f1_weighted')
+                grid_search.fit(X_train_vectorized, y_train)
+                st.write(grid_search.best_estimator_)
+                classifier = grid_search.best_estimator_
+                classifier.fit(X_train_vectorized, y_train)
+                y_pred = classifier.predict(X_test_vectorized)
+                # Evaluate the model
+                report = classification_report(y_test, y_pred, output_dict=True)
                 report_df = pd.DataFrame(report).transpose()
                 st.dataframe(report_df)
 
+                # log model
+                col_logistic, col_countvectorizer = st.columns(2)
+                with col_logistic:
+                    if st.button('Log logistic_gender Model'):
+                        msg = log_mdoel(model_name = 'logistic_gender.pkl', 
+                                        model = classifier,  
+                                        result = report['weighted avg'],
+                                        data_size= data_size,
+                                        model_type  = model_options,
+                                        model_parameter = None)
+                        # joblib.dump(classifier, 'models/logistic_gender.pkl')
+                        st.success(msg)
+                with col_countvectorizer:
+                    if st.button('Log CountVectorizer Model'):
+                        msg = log_mdoel(model_name = 'countvectorizer_gender.pkl', 
+                                        model = vectorizer, 
+                                        result = report['weighted avg'],
+                                        data_size = data_size,
+                                        model_type  = model_options,
+                                        model_parameter = None)
+                        joblib.dump(vectorizer, 'models/countvectorizer_gender.pkl')
+                        st.success(msg)
 
 
-        
-        # download model
-        '''
-        with col_option1:
-            if st.button('Log logistic_gender Model'):
-                msg = log_mdoel('logistic_gender.pkl', obj_model.model,  {'accuracy': accuracy_te, 
-                                                                            'recall': recall_te, 
-                                                                            'precesion': precision_te,
-                                                                            'f1': f1_te})
-                joblib.dump(obj_model.model, 'models/logistic_gender.pkl')
-                st.success(msg)
-        with col_option2:
-            if st.button('Log CountVectorizer Model'):
-                msg = log_mdoel('countvectorizer_gender.pkl', obj_model.vectorizer, {'accuracy': accuracy_te, 
-                                                                            'recall': recall_te, 
-                                                                            'precesion': precision_te,
-                                                                            'f1': f1_te})
-                joblib.dump(obj_model.vectorizer, 'models/countvectorizer_gender.pkl')
-                st.success(msg)
-        '''
+
+
+        if model_options == 'CatBoost':
+            with st.spinner(f"Preparing data + Training..."):
+                train_data_ = train_data.rename(columns={first_name_option : 'first_name'})
+                val_data_ = val_data.rename(columns={first_name_option : 'first_name'})
+                X_train, X_test, y_train, y_test = train_data_[['first_name']], val_data_[['first_name']], train_data[['gender_code']], val_data[['gender_code']]
+                cat_features = ['first_name']
+                train_data = Pool(data=X_train, label=y_train, cat_features=cat_features)
+                test_data = Pool(data=X_test, cat_features=cat_features)
+                catB_model = CatBoostClassifier(iterations=2000, 
+                                                depth=6, 
+                                                learning_rate=0.1, 
+                                                loss_function='Logloss', 
+                                                verbose=100)
+                catB_model.fit(train_data)
+                st.write(catB_model.best_score_)
+                y_pred = catB_model.predict(test_data)
+                report = classification_report(y_test, y_pred, output_dict=True)
+                report_df = pd.DataFrame(report).transpose()
+                st.dataframe(report_df)
+                if st.button('Log CatBoost Model'):
+                        msg = log_mdoel(model_name = 'catboost_model', 
+                                        model = catB_model,  
+                                        result = report['weighted avg'],
+                                        data_size= data_size,
+                                        model_type  = model_options,
+                                        model_parameter = None)
+                        # catB_model.save_model('models/catboost_model')
+                        st.success(msg)
+
 
 
 
