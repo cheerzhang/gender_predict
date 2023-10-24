@@ -236,7 +236,7 @@ def app():
                         optimizer.step()
                         total_loss += loss.item()
                     avg_loss = total_loss / len(train_loader)
-                    if (epoch + 1) % 10 == 0:
+                    if (epoch + 1) % 2 == 0:
                         with col_tr:
                             st.write(f"Epoch {epoch+1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
                     model.eval()
@@ -246,12 +246,12 @@ def app():
                             val_output = model(val_sequences)
                             val_loss += criterion(val_output, val_labels).item()
                     avg_val_loss = val_loss / len(val_loader)
-                    if (epoch + 1) % 10 == 0:
+                    if (epoch + 1) % 2 == 0:
                         with col_va:
                             st.write(f"Validation Loss: {avg_val_loss:.4f}")
                         with col_time:
                             end_time_ = time.time()
-                            st.write(f"10 Epoches time: {format_duration((end_time_ - start_time_)*10)}")
+                            st.write(f"2 Epoches time: {format_duration((end_time_ - start_time_)*2)}")
                     if avg_val_loss < best_val_loss:
                         best_val_loss = avg_val_loss
                         wait = 0  # Reset patience counter
