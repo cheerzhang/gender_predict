@@ -11,8 +11,6 @@ import matplotlib.pyplot as plt
 
 st.session_state['run_id']= ''
 st.session_state['model_option']= 'Logistic'
-def model_on_change():
-    st.session_state['run_id']= ''
 
 
 def app():
@@ -42,8 +40,7 @@ def app():
     model_options = st.selectbox('Choose Model', ('Logistic', 'NN', 'CatBoost'), key='model_options')
     if st.session_state['model_option'] != model_options:
         st.session_state['model_option'] = model_options
-        model_on_change()
-        run_id = st.text_input('RUN ID', st.session_state['run_id'])
+        run_id = st.text_input('RUN ID', '')
     
     if model_options == 'Logistic':
         if run_id == '' and df is not None:
