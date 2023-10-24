@@ -5,7 +5,13 @@ import mlflow, json, math, joblib, time
 from sklearn.metrics import classification_report
 from catboost import CatBoostClassifier, Pool
 import matplotlib.pyplot as plt
+from streamlit_session_state import SessionState
 
+
+
+state = SessionState.get(run_id='', model_option='Logistic')
+def model_on_change():
+    state.run_id = ''
 
 
 def app():
@@ -32,8 +38,11 @@ def app():
                 st.write(f'Male: :blue[{num_boys}] and Female: :blue[{num_girls}]')
     else:
         df = None
-    model_options = st.selectbox('Chose Model', ('Logistic', 'NN', 'CatBoost'))
-    run_id = st.text_input('RUN ID', '')
+    model_options = st.selectbox('Choose Model', ('Logistic', 'NN', 'CatBoost'), key='model_options')
+    if state.model_option != model_options:
+        state.model_option = model_options
+        model_on_change()
+    run_id = st.text_input('RUN ID', state.run_id)
     
     if model_options == 'Logistic':
         if run_id == '' and df is not None:
