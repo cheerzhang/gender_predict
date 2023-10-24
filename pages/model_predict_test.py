@@ -104,6 +104,8 @@ def app():
             test_labels = torch.LongTensor(test_labels)
             test_dataset = TensorDataset(test_sequences, test_labels)
             test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+            all_predictions = []
+            all_true_labels = []
             NNmodel.eval()
             with torch.no_grad():
                 for val_sequences, val_labels in test_loader:
