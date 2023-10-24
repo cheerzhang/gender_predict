@@ -83,8 +83,8 @@ def log_mdoel(model_name, model, result, data_size, experiment_name = 'Gender', 
         experiment = mlflow.create_experiment(name=experiment_name)
     with mlflow.start_run(experiment_id=experiment.experiment_id) as run:
         # Log parameters
-        # mlflow.log_params({'name': model_name})
         st.write(result)
+        mlflow.set_tag("run_id", run.info.run_id)
         mlflow.set_tag("data_size", data_size['data size'])
         mlflow.set_tag("data_source", data_size['data source'])
         mlflow.log_metric("f1-score", round(result['f1-score'], 2))
