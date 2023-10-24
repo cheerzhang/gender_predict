@@ -81,7 +81,7 @@ def log_mdoel(model_name, model, result, data_size, experiment_name = 'Gender', 
     experiment = mlflow.get_experiment_by_name(experiment_name)
     if experiment is None:
         experiment = mlflow.create_experiment(name=experiment_name)
-    with mlflow.start_run(experiment_id=experiment.experiment_id) as run:
+    with mlflow.start_run(experiment_id=experiment.experiment_id, run_name=f'gender_{model_type}') as run:
         # Log parameters
         st.write(result)
         mlflow.set_tag("run_id", run.info.run_id)
@@ -127,7 +127,7 @@ def app():
             col_data, col_pie = st.columns(2)
             with col_data:
                 first_name_option = st.selectbox('Chose FirstName Column', df.columns.values, index=df.columns.get_loc('first_name') if 'first_name' in df.columns.values else 0)
-                initials_option = st.selectbox('Chose Initals Column (Chose False to disable use initals for feature)', df.columns.values.tolist()+['False'], index=df.columns.get_loc('initials') if 'initials' in df.columns.values else df.columns.get_loc('False'))
+                initials_option = st.selectbox('Chose Initals Column (Chose False to disable use initals for feature)', df.columns.values.tolist()+['False'], index=df.columns.get_loc('initials') if 'initials' in df.columns.values else len(df.columns.values.tolist()))
                 gender_option = st.selectbox('Chose Gender Column', df.columns.values, index=df.columns.get_loc('gender') if 'gender' in df.columns.values else 0)
                 df[first_name_option] = df[first_name_option].fillna('')
                 df[gender_option] = df[gender_option].fillna('')
