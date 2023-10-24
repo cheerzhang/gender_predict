@@ -38,14 +38,15 @@ def app():
     else:
         df = None
     model_options = st.selectbox('Choose Model', ('Logistic', 'NN', 'CatBoost'), key='model_options')
-    run_id = st.text_input('RUN ID', '')
-    st.session_state['run_id'] = run_id
+    run_id = st.text_input('RUN ID', st.session_state['run_id'])
+    
     if st.session_state['model_option'] != model_options:
         st.session_state['model_option'] = model_options
         st.session_state['run_id'] = ''
+        run_id = st.text_input('RUN ID', st.session_state['run_id'])
     
     if model_options == 'Logistic':
-        if st.session_state['run_id'] == '' and df is not None:
+        if run_id == '' and df is not None:
             st.info(f"Please type in RUN ID and upload the predict data")
         else:
             classifier = mlflow.sklearn.load_model(f"runs:/{run_id}/logistic_gender.pkl")
@@ -59,7 +60,7 @@ def app():
     
     
     if model_options == 'CatBoost':
-        if st.session_state['run_id'] == '' and df is not None:
+        if run_id == '' and df is not None:
             st.info(f"Please type in RUN ID and upload the predict data")
         else:
             catB_model = mlflow.catboost.load_model(f"runs:/{run_id}/catboost_model")
