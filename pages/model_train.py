@@ -85,7 +85,9 @@ def log_mdoel(model_name, model, result, data_size, experiment_name = 'Gender', 
         # Log parameters
         mlflow.log_params({'name': model_name})
         st.write(result)
-        mlflow.log_params(result)
+        mlflow.set_tag("data_size", data_size['data size'])
+        mlflow.set_tag("data_source", data_size['data source'])
+        mlflow.log_metric(result)
         mlflow.log_params(data_size)
         if model_type == 'NN':
             mlflow.pytorch.log_model(model, model_name)
