@@ -34,7 +34,7 @@ def app():
     else:
         df = None
     model_options = st.selectbox('Choose Model', ('Logistic', 'NN', 'CatBoost'), key='model_options')
-    run_id = st.text_input('RUN ID', st.session_state['run_id'])
+    run_id = st.text_input('RUN ID', '')
     
     if model_options == 'Logistic':
         if run_id == '' and df is not None:
