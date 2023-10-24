@@ -89,6 +89,8 @@ def app():
             client = mlflow.tracking.MlflowClient()
             run = client.get_run(run_id)
             params = run.data.params
+            max_name_length = params.get('max_name_length')
+            st.write(max_name_length)
             df['encoded_names'] = df[first_name_option].apply(lambda name: encode_name(name))  
             test_sequences = df['encoded_names'].tolist()
             test_labels = df['gender_code'].values
