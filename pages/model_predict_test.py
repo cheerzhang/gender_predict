@@ -5,7 +5,22 @@ import mlflow, json, math, joblib, time
 from sklearn.metrics import classification_report
 from catboost import CatBoostClassifier, Pool
 import matplotlib.pyplot as plt
+import torch
+from torch.utils.data import DataLoader, TensorDataset
 
+
+
+letter_to_number = {'a': 1,  'b': 2,  'c': 3,  'd': 4,  'e': 5,  'f': 6,  'g': 7,  'h': 8,  'i': 9,  'j': 10, 
+                    'k': 11, 'l': 12, 'm': 13, 'n': 14, 'o': 15, 'p': 16, 'q': 17, 'r': 18, 's': 19, 't': 20, 
+                    'u': 21, 'v': 22, 'w': 23, 'x': 24, 'y': 25, 'z': 26, 
+                    'A': 27, 'B': 28, 'C': 29, 'D': 30, 'E': 31, 'F': 32, 'G': 33, 'H': 34, 'I': 35, 'J': 36, 
+                    'K': 37, 'L': 38, 'M': 39, 'N': 40, 'O': 41, 'P': 42, 'Q': 43, 'R': 44, 'S': 45, 'T': 46, 
+                    'U': 47, 'V': 48, 'W': 49, 'X': 50, 'Y': 51, 'Z': 52, 
+                    '.': 53, '-': 54, ' ': 55, '@': 56, '?': 57, '/': 58,  "'": 59}
+
+def encode_name(name):
+    encoded_name = [letter_to_number[letter] for letter in name if letter in letter_to_number]
+    return encoded_name
 
 
 
@@ -61,6 +76,40 @@ def app():
             test_data = Pool(data=X_test, cat_features=cat_features)
             y_pred = catB_model.predict(test_data)
             report = classification_report(y_test, y_pred, output_dict=True)
+            report_df = pd.DataFrame(report).transpose()
+            st.dataframe(report_df)
+
+    
+
+    if model_options == 'NN':
+        if run_id == '' and df is not None:
+            st.info(f"Please type in RUN ID and upload the predict data")
+        else:
+            NNmodel = mlflow.pytorch.load_model(f"runs:/{run_id}/NN_Transformer")
+            client = mlflow.tracking.MlflowClient()
+            run = client.get_run(run_id)
+            params = run.data.params
+            df['encoded_names'] = df[first_name_option].apply(lambda name: encode_name(name))  
+            test_sequences = df['encoded_names'].tolist()
+            test_labels = df['gender_code'].values
+            for i in range(len(test_sequences)):
+                if len(test_sequences[i]) < params['max_name_length']:
+                    test_sequences[i] = test_sequences[i] + [0] * (params['max_name_length'] - len(test_sequences[i]))
+                elif len(test_sequences[i]) > params['max_name_length']:
+                    test_sequences[i] = test_sequences[i][:params['max_name_length']]
+            test_sequences = torch.LongTensor(test_sequences)
+            test_dataset = TensorDataset(test_sequences, test_labels)
+            test_loader = DataLoader(test_dataset, batch_size=params['batch size'], shuffle=False)
+            NNmodel.eval()
+            with torch.no_grad():
+                for val_sequences, val_labels in test_loader:
+                    val_output = NNmodel(val_sequences)
+                    val_probs = torch.softmax(val_output, dim=1)
+                    val_preds = torch.argmax(val_probs, dim=1)
+                    item_preds = [item for item in val_preds.tolist()]
+                    all_predictions = all_predictions + item_preds
+                    all_true_labels = all_true_labels + val_labels.tolist()
+            report = classification_report(all_true_labels, all_predictions, output_dict=True)
             report_df = pd.DataFrame(report).transpose()
             st.dataframe(report_df)
 
