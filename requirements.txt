@@ -2,7 +2,7 @@ pandas
 catboost
 numpy
 xgboost
-mlflow
+mlflow==2.6.0
 scikit-learn
 transformers
 torch
