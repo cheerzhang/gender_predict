@@ -88,9 +88,10 @@ def log_mdoel(model_name, model, result, data_size, experiment_name = 'Gender', 
         mlflow.set_tag("data_size", data_size['data size'])
         mlflow.set_tag("data_source", data_size['data source'])
         mlflow.log_metric("f1-score", round(result['f1-score'], 2))
-        mlflow.log_metric("precision", f"{round(result['precision'], 3)*100} %")
-        mlflow.log_metric("recall", f"{round(result['recall'], 3)*100} %")
+        mlflow.log_metric("precision", round(result['precision'], 3) * 100)
+        mlflow.log_metric("recall", round(result['recall'], 3) * 100)
         mlflow.log_metric("support", result['support'])
+
         if model_type == 'NN':
             mlflow.pytorch.log_model(model, model_name)
             mlflow.log_params(model_parameter)
