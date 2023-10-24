@@ -9,9 +9,11 @@ from streamlit_session_state import SessionState
 
 
 
-state = SessionState.get(run_id='', model_option='Logistic')
+
+st.session_state['run_id']= ''
+st.seeeion_state['model_option']= 'Logistic'
 def model_on_change():
-    state.run_id = ''
+    st.session_state['run_id']= ''
 
 
 def app():
@@ -39,10 +41,10 @@ def app():
     else:
         df = None
     model_options = st.selectbox('Choose Model', ('Logistic', 'NN', 'CatBoost'), key='model_options')
-    if state.model_option != model_options:
-        state.model_option = model_options
+    if st.seeeion_state['model_option'] != model_options:
+        st.seeeion_state['model_option'] = model_options
         model_on_change()
-    run_id = st.text_input('RUN ID', state.run_id)
+    run_id = st.text_input('RUN ID', st.seeeion_state['run_id'])
     
     if model_options == 'Logistic':
         if run_id == '' and df is not None:
