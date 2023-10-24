@@ -3,13 +3,15 @@ import pandas as pd
 import numpy as np
 import mlflow, json, math, joblib, time
 from sklearn.metrics import classification_report
+from catboost import CatBoostClassifier, Pool
 import matplotlib.pyplot as plt
 
 
 
 def app():
     df_file = st.file_uploader("Choose 'gender' file :", key="gender_file_upload")
-    if df_file:
+    df = None
+    if df_file is not None:
         df = pd.read_csv(df_file)
         with st.expander(f"check dataset size {df.shape}"):
             col_data, col_pie = st.columns(2)
@@ -28,11 +30,14 @@ def app():
                 ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
                 st.pyplot(fig)
                 st.write(f'Male: :blue[{num_boys}] and Female: :blue[{num_girls}]')
-    model_options = st.selectbox('Chose Model', ('Logistic', 'NN', 'CatBoost',  'XGB'))
+    else:
+        df = None
+    model_options = st.selectbox('Chose Model', ('Logistic', 'NN', 'CatBoost'))
+    run_id = st.text_input('RUN ID', '')
+    
     if model_options == 'Logistic':
-        run_id = st.text_input('RUN ID', '')
-        if run_id == '':
-            st.info(f"Please type in RUN ID")
+        if run_id == '' and df is not None:
+            st.info(f"Please type in RUN ID and upload the predict data")
         else:
             classifier = mlflow.sklearn.load_model(f"runs:/{run_id}/logistic_gender.pkl")
             vectorizer = mlflow.sklearn.load_model(f"runs:/{run_id}/countvectorizer_gender.pkl")
@@ -42,6 +47,23 @@ def app():
             report = classification_report(y_test, y_pred, output_dict=True)
             report_df = pd.DataFrame(report).transpose()
             st.dataframe(report_df)
+    
+    
+    if model_options == 'CatBoost':
+        if run_id == '' and df is not None:
+            st.info(f"Please type in RUN ID and upload the predict data")
+        else:
+            catB_model = mlflow.catboost.load_model(f"runs:/{run_id}/catboost_model")
+            df_ = df.rename(columns={first_name_option : 'first_name'})
+            X_test, y_test = df_[['first_name']], df_[['gender_code']]
+            cat_features = ['first_name']
+            test_data = Pool(data=X_test, cat_features=cat_features)
+            y_pred = catB_model.predict(test_data)
+            report = classification_report(y_test, y_pred, output_dict=True)
+            report_df = pd.DataFrame(report).transpose()
+            st.dataframe(report_df)
+
+
 
 
 if __name__ == '__main__':

@@ -117,7 +117,6 @@ def format_duration(duration):
 
 
 def app():
-    st.markdown('# Gender Classification Model')
     df_file = st.file_uploader("Choose 'gender' file :", key="gender_file_upload")
     data_source = st.text_input('Data Scorce', 'Public Dataset')
     if df_file is not None:
@@ -304,7 +303,7 @@ def app():
 
 
         if model_options == 'Logistic':
-            with st.spinner(f"Preparing data + Training..."):
+            with st.spinner(f"Preparing data + Training Logistic Model..."):
                 X_train, X_test, y_train, y_test = train_data[[first_name_option]], val_data[[first_name_option]], train_data[['gender_code']], val_data[['gender_code']]
                 vectorizer = CountVectorizer()
                 X_train_vectorized = vectorizer.fit_transform(X_train[first_name_option].values)
@@ -344,7 +343,7 @@ def app():
 
 
         if model_options == 'CatBoost':
-            with st.spinner(f"Preparing data + Training..."):
+            with st.spinner(f"Preparing data + Training CatBoost Model..."):
                 train_data_ = train_data.rename(columns={first_name_option : 'first_name'})
                 val_data_ = val_data.rename(columns={first_name_option : 'first_name'})
                 X_train, X_test, y_train, y_test = train_data_[['first_name']], val_data_[['first_name']], train_data[['gender_code']], val_data[['gender_code']]
@@ -381,4 +380,5 @@ def app():
 
 
 if __name__ == '__main__':
+    st.markdown('# Gender Classification Model - Train')
     app()
