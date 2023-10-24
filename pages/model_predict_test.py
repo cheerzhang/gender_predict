@@ -9,10 +9,6 @@ import matplotlib.pyplot as plt
 
 
 
-st.session_state['run_id']= ''
-st.session_state['model_option']= 'Logistic'
-
-
 def app():
     df_file = st.file_uploader("Choose 'gender' file :", key="gender_file_upload")
     df = None
@@ -39,11 +35,6 @@ def app():
         df = None
     model_options = st.selectbox('Choose Model', ('Logistic', 'NN', 'CatBoost'), key='model_options')
     run_id = st.text_input('RUN ID', st.session_state['run_id'])
-    
-    if st.session_state['model_option'] != model_options:
-        st.session_state['model_option'] = model_options
-        st.session_state['run_id'] = ''
-        run_id = st.text_input('RUN ID', st.session_state['run_id'])
     
     if model_options == 'Logistic':
         if run_id == '' and df is not None:
