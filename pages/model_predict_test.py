@@ -101,6 +101,7 @@ def app():
                 elif len(test_sequences[i]) > max_name_length:
                     test_sequences[i] = test_sequences[i][:max_name_length]
             test_sequences = torch.LongTensor(test_sequences)
+            test_labels = torch.LongTensor(test_labels)
             test_dataset = TensorDataset(test_sequences, test_labels)
             test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
             NNmodel.eval()
