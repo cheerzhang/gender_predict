@@ -2,18 +2,48 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import mlflow, json, math, joblib, time
+from sklearn.metrics import classification_report
+import matplotlib.pyplot as plt
 
 
 
 def app():
+    df_file = st.file_uploader("Choose 'gender' file :", key="gender_file_upload")
+    if df_file:
+        df = pd.read_csv(df_file)
+        with st.expander(f"check dataset size {df.shape}"):
+            col_data, col_pie = st.columns(2)
+            with col_data:
+                first_name_option = st.selectbox('Chose FirstName Column', df.columns.values, index=df.columns.get_loc('first_name') if 'first_name' in df.columns.values else 0)
+                gender_option = st.selectbox('Chose Gender Column', df.columns.values, index=df.columns.get_loc('gender') if 'gender' in df.columns.values else 0)
+                df[first_name_option] = df[first_name_option].fillna('')
+                df['gender_code'] = df[gender_option].map({'M': 1, 'F': 0})
+                df = df[~df['gender_code'].isna()]
+                distribution = df[first_name_option].value_counts()
+                st.bar_chart(distribution)
+            with col_pie:
+                fig, ax = plt.subplots()
+                num_boys, num_girls = df[df[gender_option] == 'M'].shape[0], df[df[gender_option] == 'F'].shape[0]
+                ax.pie([num_girls, num_boys], labels=['Female', 'Male'], autopct='%1.1f%%', startangle=90)
+                ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+                st.pyplot(fig)
+                st.write(f'Male: :blue[{num_boys}] and Female: :blue[{num_girls}]')
     model_options = st.selectbox('Chose Model', ('Logistic', 'NN', 'CatBoost',  'XGB'))
     if model_options == 'Logistic':
-        run_id = st.text_input('RUN ID', 'xxx')
-        model1 = mlflow.sklearn.load_model(f"runs:/{run_id}/logistic_gender.pkl")
-        model2 = mlflow.sklearn.load_model(f"runs:/{run_id}/countvectorizer_gender.pkl")
-        st.write(model1)
-        st.write(model2)
+        run_id = st.text_input('RUN ID', '')
+        if run_id == '':
+            st.info(f"Please type in RUN ID")
+        else:
+            classifier = mlflow.sklearn.load_model(f"runs:/{run_id}/logistic_gender.pkl")
+            vectorizer = mlflow.sklearn.load_model(f"runs:/{run_id}/countvectorizer_gender.pkl")
+            X_test, y_test = df[[first_name_option]], df[['gender_code']]
+            X_test_vectorized = vectorizer.transform(X_test[first_name_option].values)
+            y_pred = classifier.predict(X_test_vectorized)
+            report = classification_report(y_test, y_pred, output_dict=True)
+            report_df = pd.DataFrame(report).transpose()
+            st.dataframe(report_df)
 
 
 if __name__ == '__main__':
+    st.markdown('# Gender Classification Model - Predict & Test')
     app()
