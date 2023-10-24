@@ -43,7 +43,7 @@ def app():
     if st.session_state['model_option'] != model_options:
         st.session_state['model_option'] = model_options
         model_on_change()
-    run_id = st.text_input('RUN ID', st.session_state['run_id'])
+        run_id = st.text_input('RUN ID', st.session_state['run_id'])
     
     if model_options == 'Logistic':
         if run_id == '' and df is not None:
