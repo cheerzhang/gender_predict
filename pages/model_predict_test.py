@@ -52,7 +52,7 @@ def app():
     run_id = st.text_input('RUN ID', '', key='run_id_text')
     
     if model_options == 'Logistic':
-        if run_id == '' and df is not None:
+        if run_id == '' or df is None:
             st.info(f"Please type in RUN ID and upload the predict data")
         else:
             classifier = mlflow.sklearn.load_model(f"runs:/{run_id}/logistic_gender.pkl")
@@ -66,7 +66,7 @@ def app():
     
     
     if model_options == 'CatBoost':
-        if run_id == '' and df is not None:
+        if run_id == '' or df is None:
             st.info(f"Please type in RUN ID and upload the predict data")
         else:
             catB_model = mlflow.catboost.load_model(f"runs:/{run_id}/catboost_model")
@@ -82,7 +82,7 @@ def app():
     
 
     if model_options == 'NN':
-        if run_id == '' and df is not None:
+        if run_id == '' or df is None:
             st.info(f"Please type in RUN ID and upload the predict data")
         else:
             NNmodel = mlflow.pytorch.load_model(f"runs:/{run_id}/NN_Transformer")
@@ -90,18 +90,19 @@ def app():
             run = client.get_run(run_id)
             params = run.data.params
             max_name_length = params.get('max_name_length')
+            batch_size = params.get('batch size')
             st.write(max_name_length)
             df['encoded_names'] = df[first_name_option].apply(lambda name: encode_name(name))  
             test_sequences = df['encoded_names'].tolist()
             test_labels = df['gender_code'].values
             for i in range(len(test_sequences)):
-                if len(test_sequences[i]) < params.get('max_name_length'):
-                    test_sequences[i] = test_sequences[i] + [0] * (params.get('max_name_length') - len(test_sequences[i]))
-                elif len(test_sequences[i]) > params.get('max_name_length'):
-                    test_sequences[i] = test_sequences[i][:params.get('max_name_length')]
+                if len(test_sequences[i]) < max_name_length:
+                    test_sequences[i] = test_sequences[i] + [0] * (max_name_length - len(test_sequences[i]))
+                elif len(test_sequences[i]) > max_name_length:
+                    test_sequences[i] = test_sequences[i][:max_name_length]
             test_sequences = torch.LongTensor(test_sequences)
             test_dataset = TensorDataset(test_sequences, test_labels)
-            test_loader = DataLoader(test_dataset, batch_size=params.get('batch size'), shuffle=False)
+            test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
             NNmodel.eval()
             with torch.no_grad():
                 for val_sequences, val_labels in test_loader:
