@@ -27,7 +27,6 @@ def encode_name(name):
 def convert_df(df):
     return df.to_csv(index=False).encode('utf-8')
 
-
 def download_csv(df, file_name):
     csv = convert_df(df)
     st.download_button(
@@ -38,12 +37,12 @@ def download_csv(df, file_name):
     )
 
 def app():
+    df_file = st.file_uploader("Choose 'gender' file :", key="gender_file_upload")
+    df = None
     with open('config.json') as config_file:
         config = json.load(config_file)
     model_uri = config['tracking_uri']
     mlflow.set_tracking_uri(model_uri)
-    df_file = st.file_uploader("Choose 'gender' file :", key="gender_file_upload")
-    df = None
     if df_file is not None:
         try:
             df = pd.read_csv(df_file)
@@ -57,11 +56,16 @@ def app():
                 first_name_option = st.selectbox('Chose FirstName Column', df.columns.values, index=df.columns.get_loc('first_name') if 'first_name' in df.columns.values else 0)
                 gender_option = st.selectbox('Chose Gender Column', df.columns.values, index=df.columns.get_loc('gender') if 'gender' in df.columns.values else 0)
                 df.drop_duplicates(subset=first_name_option, keep='first', inplace=True)
+                st.write(df[first_name_option].nunique())
                 df[first_name_option] = df[first_name_option].fillna('')
-                df['gender_code'] = df[gender_option].map({'M': 1, 'F': 0})
-                df = df[~df['gender_code'].isna()]
+                gender_map = {'M': 1, 'F': 0}
+                df['gender_code'] = -1
+                df['gender_code'] = df[gender_option].map(gender_map)
+                # df = df[~df['gender_code'].isna()]
+                st.dataframe(df)
                 distribution = df[first_name_option].value_counts()
-                st.bar_chart(distribution)
+                st.write(distribution)
+                # st.bar_chart(distribution)
             with col_pie:
                 fig, ax = plt.subplots()
                 num_boys, num_girls = df[df[gender_option] == 'M'].shape[0], df[df[gender_option] == 'F'].shape[0]
@@ -142,8 +146,9 @@ def app():
                         all_predictions = all_predictions + item_preds
                         all_true_labels = all_true_labels + val_labels.tolist()
                 # assign the result back
-                df['pred_gender'] = all_true_labels
-                df_remove_duplicate = df[[first_name_option, gender_option] + ['pred_gender']]
+                st.write(len(all_predictions))
+                df['pred_gender'] = all_predictions
+                df_remove_duplicate = df[[first_name_option, 'pred_gender']]
                 df_remove_duplicate.drop_duplicates(subset=first_name_option, keep='first', inplace=True)
                 st.dataframe(df_remove_duplicate)
                 download_csv(df_remove_duplicate, 'gender_with_pred')
